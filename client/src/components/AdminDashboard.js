@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
 
 const AdminDashboard = () => {
   const [leaves, setLeaves] = useState([]);
@@ -8,6 +9,7 @@ const AdminDashboard = () => {
   
   const user = JSON.parse(localStorage.getItem('user') || '{}');
   const token = localStorage.getItem('token');
+  const navigate = useNavigate();
   
   // Fetch leaves function wrapped in useCallback
   const fetchLeaves = useCallback(async () => {
@@ -61,6 +63,8 @@ const AdminDashboard = () => {
           leave._id === id ? { ...leave, status: status } : leave
         ));
         alert(`Leave ${status} successfully!`);
+        // Refresh leaves list
+        fetchLeaves();
       } else {
         setError(response.data.error || `Failed to ${status} leave`);
       }
@@ -104,6 +108,7 @@ const AdminDashboard = () => {
               <h5 className="card-title">Welcome, {user.name}!</h5>
               <p className="card-text">You can manage all employee leave requests here.</p>
               
+              {/* Statistics Cards */}
               <div className="row mt-4">
                 <div className="col-md-4">
                   <div className="card text-white bg-primary mb-3">
@@ -126,6 +131,24 @@ const AdminDashboard = () => {
                     <div className="card-body">
                       <h5 className="card-title">Rejected</h5>
                       <h2 className="card-text">{rejectedLeaves.length}</h2>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Audit Logs Card */}
+              <div className="row mt-3">
+                <div className="col-md-12">
+                  <div className="card text-white bg-dark">
+                    <div className="card-body">
+                      <h5 className="card-title">Audit Logs</h5>
+                      <p className="card-text">Track all system activities and admin actions</p>
+                      <button 
+                        className="btn btn-outline-light"
+                        onClick={() => navigate('/admin/audit-logs')}
+                      >
+                        View Audit Logs
+                      </button>
                     </div>
                   </div>
                 </div>
