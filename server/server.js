@@ -5,17 +5,13 @@ require('dotenv').config();
 
 const authRoutes = require('./routes/auth');
 const leaveRoutes = require('./routes/leaves');
+const auditRoutes = require('./routes/audit'); // ADD THIS
 
 const app = express();
 
 // Middleware
 app.use(cors());
 app.use(express.json());
-
-// app.use((req, res, next) => {
-//   console.log(`${req.method} ${req.url}`);
-//   next();
-// });
 
 // Database connection
 mongoose.connect(process.env.MONGODB_URI)
@@ -25,6 +21,7 @@ mongoose.connect(process.env.MONGODB_URI)
 // Routes
 app.use('/auth', authRoutes);
 app.use('/leaves', leaveRoutes);
+app.use('/audit', auditRoutes); // ADD THIS
 
 // Health check
 app.get('/health', (req, res) => {

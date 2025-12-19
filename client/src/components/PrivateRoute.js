@@ -10,7 +10,7 @@ const PrivateRoute = ({ children }) => {
     return <Navigate to="/login" replace />;
   }
   
-  // Check if token is expired (basic check)
+  // Check if token is expired
   try {
     const payload = JSON.parse(atob(token.split('.')[1]));
     const isExpired = payload.exp * 1000 < Date.now();

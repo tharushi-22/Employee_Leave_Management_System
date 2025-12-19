@@ -4,37 +4,28 @@ const AuditLogSchema = new mongoose.Schema({
   action: {
     type: String,
     required: true,
-    enum: [
-      'leave_created', 
-      'leave_approved', 
-      'leave_rejected', 
-      'user_logged_in'
-    ]
+    enum: ['leave_approved', 'leave_rejected', 'leave_created', 'user_logged_in']
   },
-  user: {
+  admin: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true
+    ref: 'User'
   },
-  target: {
+  employee: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  leave: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Leave'
   },
-  description: {
+  details: {
     type: String,
     required: true
   },
-  ipAddress: String,
-  userAgent: String,
   timestamp: {
     type: Date,
-    default: Date.now,
-    index: true
+    default: Date.now
   }
 });
-
-// Index for better query performance
-AuditLogSchema.index({ action: 1, timestamp: -1 });
-AuditLogSchema.index({ user: 1, timestamp: -1 });
 
 module.exports = mongoose.model('AuditLog', AuditLogSchema);
