@@ -3,23 +3,34 @@ const router = express.Router();
 const { body, validationResult } = require('express-validator');
 const { auth, isAdmin, isEmployee } = require('../middleware/auth');
 const Leave = require('../models/Leave');
-const auditLogger = require('../middleware/auditLogger');
+const AuditLog = require('../models/AuditLog');
 
-// Employee: Create leave request
+// Helper function to calculate total days
+const calculateTotalDays = (startDate, endDate) => {
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  const timeDiff = end.getTime() - start.getTime();
+  return Math.ceil(timeDiff / (1000 * 3600 * 24)) + 1;
+};
+
+// Employee: Create leave request WITH VALIDATION
 router.post('/', 
   auth, 
   isEmployee,
   [
     body('startDate')
-      .notEmpty().withMessage('Start date is required'),
+      .notEmpty().withMessage('Start date is required')
+      .isISO8601().withMessage('Invalid date format (use YYYY-MM-DD)'),
     
     body('endDate')
-      .notEmpty().withMessage('End date is required'),
+      .notEmpty().withMessage('End date is required')
+      .isISO8601().withMessage('Invalid date format (use YYYY-MM-DD)'),
     
     body('reason')
       .notEmpty().withMessage('Reason is required')
       .trim()
       .isLength({ min: 5 }).withMessage('Reason must be at least 5 characters')
+      .isLength({ max: 500 }).withMessage('Reason too long (max 500 characters)')
   ],
   async (req, res) => {
     try {
@@ -38,14 +49,7 @@ router.post('/',
       const start = new Date(startDate);
       const end = new Date(endDate);
       
-      // Validate dates
-      if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-        return res.status(400).json({ 
-          success: false,
-          error: 'Invalid date format. Use YYYY-MM-DD' 
-        });
-      }
-      
+      // Additional date validation
       if (end < start) {
         return res.status(400).json({ 
           success: false,
@@ -54,8 +58,7 @@ router.post('/',
       }
       
       // Calculate total days
-      const timeDiff = end.getTime() - start.getTime();
-      const totalDays = Math.ceil(timeDiff / (1000 * 3600 * 24)) + 1;
+      const totalDays = calculateTotalDays(start, end);
       
       // Create leave object
       const leaveData = {
@@ -71,18 +74,19 @@ router.post('/',
       const leave = new Leave(leaveData);
       const savedLeave = await leave.save();
       
-      // Populate employee data
+      // CREATE AUDIT LOG FOR LEAVE CREATION
+      const auditLog = new AuditLog({
+        action: 'leave_created',
+        employee: req.user.id,
+        leave: savedLeave._id,
+        details: `Employee ${req.user.name} created a ${totalDays}-day leave request`
+      });
+      await auditLog.save();
+      console.log(`📝 Audit Log: Employee ${req.user.name} created leave`);
+      
+      // Populate employee info for response
       const populatedLeave = await Leave.findById(savedLeave._id)
         .populate('employee', 'name email');
-      
-      // Audit log
-      await auditLogger(
-        req,
-        'leave_created',
-        savedLeave._id,
-        `Employee ${req.user.name} created a ${totalDays}-day leave request`,
-        req.user
-      );
       
       res.status(201).json({
         success: true,
@@ -91,7 +95,9 @@ router.post('/',
       });
       
     } catch (error) {
-      // Check for specific errors
+      console.error('Leave creation error:', error.message);
+      
+      // Handle specific errors
       if (error.name === 'ValidationError') {
         return res.status(400).json({
           success: false,
@@ -106,7 +112,6 @@ router.post('/',
         });
       }
       
-      console.error('Leave creation error:', error.message);
       res.status(500).json({
         success: false,
         error: 'Server error while creating leave'
@@ -137,7 +142,7 @@ router.get('/my-leaves', auth, isEmployee, async (req, res) => {
     });
     
   } catch (error) {
-    console.error('Fetch leaves error:', error);
+    console.error('Fetch leaves error:', error.message);
     res.status(500).json({
       success: false,
       error: 'Failed to fetch leaves'
@@ -150,27 +155,15 @@ router.get('/all', auth, isAdmin, async (req, res) => {
   try {
     const leaves = await Leave.find()
       .sort({ createdAt: -1 })
-      .populate('employee', 'name email role');
+      .populate('employee', 'name email');
     
     // Format for frontend
-    const formattedLeaves = leaves.map(leave => {
-      const employee = leave.employee || {};
-      return {
-        _id: leave._id,
-        startDate: new Date(leave.startDate).toISOString().split('T')[0],
-        endDate: new Date(leave.endDate).toISOString().split('T')[0],
-        reason: leave.reason,
-        status: leave.status,
-        totalDays: leave.totalDays,
-        createdAt: new Date(leave.createdAt).toLocaleString(),
-        employee: {
-          _id: employee._id,
-          name: employee.name || 'Unknown',
-          email: employee.email || 'No email',
-          role: employee.role || 'employee'
-        }
-      };
-    });
+    const formattedLeaves = leaves.map(leave => ({
+      ...leave.toObject(),
+      startDate: new Date(leave.startDate).toISOString().split('T')[0],
+      endDate: new Date(leave.endDate).toISOString().split('T')[0],
+      createdAt: new Date(leave.createdAt).toLocaleString()
+    }));
     
     res.json({
       success: true,
@@ -179,7 +172,7 @@ router.get('/all', auth, isAdmin, async (req, res) => {
     });
     
   } catch (error) {
-    console.error('Fetch all leaves error:', error);
+    console.error('Fetch all leaves error:', error.message);
     res.status(500).json({
       success: false,
       error: 'Failed to fetch leaves'
@@ -187,17 +180,18 @@ router.get('/all', auth, isAdmin, async (req, res) => {
   }
 });
 
-// Admin: Update leave status
+// Admin: Update leave status WITH VALIDATION
 router.put('/:id/status', 
   auth, 
   isAdmin,
   [
     body('status')
       .notEmpty().withMessage('Status is required')
-      .isIn(['approved', 'rejected']).withMessage('Status must be approved or rejected')
+      .isIn(['approved', 'rejected']).withMessage('Status must be "approved" or "rejected"')
   ],
   async (req, res) => {
     try {
+      // Check validation errors
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
         return res.status(400).json({ 
@@ -209,6 +203,15 @@ router.put('/:id/status',
       const { status } = req.body;
       const leaveId = req.params.id;
       
+      // Validate leave ID format
+      if (!leaveId.match(/^[0-9a-fA-F]{24}$/)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid leave ID format'
+        });
+      }
+      
+      // Find and update leave
       const leave = await Leave.findByIdAndUpdate(
         leaveId,
         { status: status },
@@ -222,21 +225,25 @@ router.put('/:id/status',
         });
       }
       
+      // CREATE AUDIT LOG FOR ADMIN ACTION
+      const actionType = status === 'approved' ? 'leave_approved' : 'leave_rejected';
+      const auditLog = new AuditLog({
+        action: actionType,
+        admin: req.user.id,
+        employee: leave.employee._id,
+        leave: leave._id,
+        details: `Admin ${req.user.name} ${status} leave request from ${leave.employee.name} at ${new Date().toLocaleString()}`
+      });
+      await auditLog.save();
+      console.log(`📝 Audit Log: Admin ${req.user.name} ${status} leave`);
+      
       // Format response
       const formattedLeave = {
         ...leave.toObject(),
         startDate: new Date(leave.startDate).toISOString().split('T')[0],
-        endDate: new Date(leave.endDate).toISOString().split('T')[0]
+        endDate: new Date(leave.endDate).toISOString().split('T')[0],
+        updatedAt: new Date().toLocaleString()
       };
-      
-      // Audit log
-      await auditLogger(
-        req,
-        `leave_${status}`,
-        leaveId,
-        `Admin ${req.user.name} ${status} leave request from ${leave.employee.name}`,
-        req.user
-      );
       
       res.json({
         success: true,
@@ -245,7 +252,15 @@ router.put('/:id/status',
       });
       
     } catch (error) {
-      console.error('Update leave error:', error);
+      console.error('Update leave error:', error.message);
+      
+      if (error.name === 'CastError') {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid leave ID'
+        });
+      }
+      
       res.status(500).json({
         success: false,
         error: 'Failed to update leave status'
@@ -254,5 +269,39 @@ router.put('/:id/status',
   }
 );
 
-// Export router
+// Get single leave by ID
+router.get('/:id', auth, async (req, res) => {
+  try {
+    const leave = await Leave.findById(req.params.id)
+      .populate('employee', 'name email');
+    
+    if (!leave) {
+      return res.status(404).json({
+        success: false,
+        error: 'Leave not found'
+      });
+    }
+    
+    // Check permission
+    if (req.user.role !== 'admin' && leave.employee._id.toString() !== req.user.id) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied'
+      });
+    }
+    
+    res.json({
+      success: true,
+      leave: leave
+    });
+    
+  } catch (error) {
+    console.error('Error fetching leave:', error.message);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch leave'
+    });
+  }
+});
+
 module.exports = router;
