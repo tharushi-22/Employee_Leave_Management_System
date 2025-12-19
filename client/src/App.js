@@ -6,6 +6,7 @@ import './App.css';
 import Login from './components/Login';
 import EmployeeDashboard from './components/EmployeeDashboard';
 import AdminDashboard from './components/AdminDashboard';
+import AuditLogs from './components/AuditLogs';
 import Navbar from './components/Navbar';
 import PrivateRoute from './components/PrivateRoute';
 
@@ -27,6 +28,13 @@ function App() {
             <PrivateRoute>
               <Navbar />
               <AdminDashboard />
+            </PrivateRoute>
+          } />
+          
+          <Route path="/admin/audit-logs" element={
+            <PrivateRoute>
+              <Navbar />
+              <AuditLogs />
             </PrivateRoute>
           } />
           

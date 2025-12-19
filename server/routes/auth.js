@@ -1,86 +1,52 @@
 const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
-const { body, validationResult } = require('express-validator');
 const User = require('../models/User');
-const auditLogger = require('../middleware/auditLogger');
+const AuditLog = require('../models/AuditLog'); // ADD THIS
 
-router.post('/login', 
-  [
-    body('email')
-      .isEmail()
-      .withMessage('Valid email required')
-      .normalizeEmail(),
+// Login endpoint
+router.post('/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
     
-    body('password')
-      .notEmpty()
-      .withMessage('Password required')
-  ],
-  async (req, res) => {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({ 
-          success: false,
-          errors: errors.array() 
-        });
-      }
-      
-      const { email, password } = req.body;
-      
-      const user = await User.findOne({ email: email.toLowerCase() });
-      
-      if (!user) {
-        return res.status(400).json({ 
-          success: false,
-          error: 'Invalid credentials' 
-        });
-      }
-      
-      const isMatch = await user.comparePassword(password);
-      if (!isMatch) {
-        return res.status(400).json({ 
-          success: false,
-          error: 'Invalid credentials' 
-        });
-      }
-      
-      // Create user object for token and response
-      const userData = {
-        id: user._id.toString(),
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(400).json({ error: 'Invalid credentials' });
+    }
+    
+    const isMatch = await user.comparePassword(password);
+    if (!isMatch) {
+      return res.status(400).json({ error: 'Invalid credentials' });
+    }
+    
+    const token = jwt.sign(
+      { id: user._id, email: user.email, role: user.role, name: user.name },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+    
+    // ✅ CREATE AUDIT LOG FOR USER LOGIN
+    const auditLog = new AuditLog({
+      action: 'user_logged_in',
+      employee: user._id,
+      details: `User ${user.email} logged in successfully`
+    });
+    await auditLog.save();
+    
+    res.json({
+      token,
+      user: {
+        id: user._id,
         email: user.email,
         role: user.role,
         name: user.name
-      };
-      
-      const token = jwt.sign(
-        userData,
-        process.env.JWT_SECRET || 'secret',
-        { expiresIn: '7d' }
-      );
-      
-      // Call audit logger with explicit user data
-      await auditLogger(
-        req,
-        'user_logged_in',
-        null,
-        `User ${user.email} logged in successfully`,
-        userData  // Explicitly pass user data
-      );
-      
-      res.json({
-        success: true,
-        token,
-        user: userData
-      });
-      
-    } catch (err) {
-      console.error('Login error:', err);
-      res.status(500).json({ 
-        success: false,
-        error: 'Server error' 
-      });
-    }
+      }
+    });
+    
+  } catch (err) {
+    console.error('Login error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
 module.exports = router;

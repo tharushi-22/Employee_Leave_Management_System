@@ -52,7 +52,6 @@ const EmployeeDashboard = () => {
     setError(''); // Clear error when user types
   };
   
-// In the handleSubmit function, update it like this:
 const handleSubmit = async (e) => {
   e.preventDefault();
   setLoading(true);

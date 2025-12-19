@@ -41,7 +41,4 @@ const LeaveSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Remove any pre-save hooks that might cause issues
-// Keep it simple
-
 module.exports = mongoose.model('Leave', LeaveSchema);
